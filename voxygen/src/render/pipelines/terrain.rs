@@ -1,7 +1,7 @@
 use super::{
     super::{
-        texture::Texture, Bound, Consts, ExperimentalShader, GlobalsLayouts, PipelineModes,
-        Vertex as VertexTrait,
+        Bound, Consts, ExperimentalShader, GlobalsLayouts, PipelineModes, Vertex as VertexTrait,
+        texture::Texture,
     },
     AtlasData,
 };
@@ -237,76 +237,78 @@ impl TerrainPbrTextures {
         normal_layers: &[Vec<u8>],
         specular_layers: &[Vec<u8>],
     ) -> Self {
-        assert!(!albedo_layers.is_empty(), "PBR material arrays cannot be empty");
+        assert!(
+            !albedo_layers.is_empty(),
+            "PBR material arrays cannot be empty"
+        );
         assert_eq!(albedo_layers.len(), normal_layers.len());
         assert_eq!(albedo_layers.len(), specular_layers.len());
 
-        let create_array = |label: &'static str,
-                            format: wgpu::TextureFormat,
-                            layers: &[Vec<u8>]| {
-            let layer_bytes = dimensions.x as usize * dimensions.y as usize * 4;
-            assert!(
-                layers.iter().all(|layer| layer.len() == layer_bytes),
-                "{label} PBR layers must all be RGBA8 images with matching dimensions"
-            );
-            let mut data = Vec::with_capacity(layer_bytes * layers.len());
-            for layer in layers {
-                data.extend_from_slice(layer);
-            }
+        let create_array =
+            |label: &'static str, format: wgpu::TextureFormat, layers: &[Vec<u8>]| {
+                let layer_bytes = dimensions.x as usize * dimensions.y as usize * 4;
+                assert!(
+                    layers.iter().all(|layer| layer.len() == layer_bytes),
+                    "{label} PBR layers must all be RGBA8 images with matching dimensions"
+                );
+                let mut data = Vec::with_capacity(layer_bytes * layers.len());
+                for layer in layers {
+                    data.extend_from_slice(layer);
+                }
 
-            let texture_info = wgpu::TextureDescriptor {
-                label: Some(label),
-                size: wgpu::Extent3d {
-                    width: dimensions.x,
-                    height: dimensions.y,
-                    depth_or_array_layers: layers.len() as u32,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            };
-            let view_info = wgpu::TextureViewDescriptor {
-                label: Some(label),
-                format: Some(format),
-                dimension: Some(wgpu::TextureViewDimension::D2Array),
-                usage: None,
-                aspect: wgpu::TextureAspect::All,
-                base_mip_level: 0,
-                mip_level_count: None,
-                base_array_layer: 0,
-                array_layer_count: None,
-            };
-            let sampler_info = wgpu::SamplerDescriptor {
-                label: Some(label),
-                address_mode_u: wgpu::AddressMode::Repeat,
-                address_mode_v: wgpu::AddressMode::Repeat,
-                address_mode_w: wgpu::AddressMode::Repeat,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Nearest,
-                ..Default::default()
-            };
-            let texture = Texture::new_raw(device, &texture_info, &view_info, &sampler_info);
-            queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture.tex,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
+                let texture_info = wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: wgpu::Extent3d {
+                        width: dimensions.x,
+                        height: dimensions.y,
+                        depth_or_array_layers: layers.len() as u32,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[],
+                };
+                let view_info = wgpu::TextureViewDescriptor {
+                    label: Some(label),
+                    format: Some(format),
+                    dimension: Some(wgpu::TextureViewDimension::D2Array),
+                    usage: None,
                     aspect: wgpu::TextureAspect::All,
-                },
-                &data,
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(dimensions.x * 4),
-                    rows_per_image: Some(dimensions.y),
-                },
-                texture_info.size,
-            );
-            texture
-        };
+                    base_mip_level: 0,
+                    mip_level_count: None,
+                    base_array_layer: 0,
+                    array_layer_count: None,
+                };
+                let sampler_info = wgpu::SamplerDescriptor {
+                    label: Some(label),
+                    address_mode_u: wgpu::AddressMode::Repeat,
+                    address_mode_v: wgpu::AddressMode::Repeat,
+                    address_mode_w: wgpu::AddressMode::Repeat,
+                    mag_filter: wgpu::FilterMode::Linear,
+                    min_filter: wgpu::FilterMode::Linear,
+                    mipmap_filter: wgpu::FilterMode::Nearest,
+                    ..Default::default()
+                };
+                let texture = Texture::new_raw(device, &texture_info, &view_info, &sampler_info);
+                queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &texture.tex,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    &data,
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(dimensions.x * 4),
+                        rows_per_image: Some(dimensions.y),
+                    },
+                    texture_info.size,
+                );
+                texture
+            };
 
         let albedo = create_array(
             "Terrain PBR albedo array",
