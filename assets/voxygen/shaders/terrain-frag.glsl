@@ -284,8 +284,7 @@ void main() {
             sampler2DArray(t_pbr_specular, s_pbr_specular), layer_uv, uv_dx, uv_dy
         );
 
-        float initial_height = sample_pbr_height(pbr_layer, base_uv, uv_dx, uv_dy);
-        float depth_offset = max(initial_height - parallax_hit.z, 0.0);
+        float depth_offset = max(parallax_hit.z - parallax_hit.w, 0.0);
         vec3 light_dir_ts = transpose(pbr_tbn) * (-sun_dir.xyz);
         pbr_shadow = pbr_parallax_shadow(
             pbr_layer,
@@ -323,7 +322,7 @@ void main() {
         // LabPBR: red is inverted perceptual roughness; green is
         // dielectric F0 or the conductor/material code. Values >= 230
         // select the conductor path.
-        float roughness = max(pow(1.0 - pbr_specular.r, 2.0), 0.002);
+        float roughness = max(pow(1.0 - pbr_specular.r, 2.0), 0.0002);
         float encoded_f0 = floor(pbr_specular.g * 255.0 + 0.5);
         bool conductor = encoded_f0 >= 230.0;
         vec3 base_color = pbr_albedo * f_col;
@@ -375,7 +374,10 @@ void main() {
 
         alpha = roughness;
         f_norm = normalize(pbr_tbn * pbr_normal_ts);
-        pbr_emission = clamp(pbr_specular.a, 0.0, 1.0);
+        float emission_code = pbr_specular.a * 255.0;
+        pbr_emission = emission_code <= 254.5
+            ? clamp((emission_code - 0.5) / 254.0, 0.0, 1.0)
+            : 0.0;
     }
 
     float f_alpha = 1.0;
