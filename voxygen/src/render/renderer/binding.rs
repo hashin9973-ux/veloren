@@ -111,10 +111,10 @@ impl Renderer {
         col_light: Texture,
         kinds: Texture,
     ) -> AtlasTextures<terrain::Locals, TerrainAtlasData> {
-        self.layouts.global.bind_atlas_textures(
+        self.layouts.global.bind_terrain_atlas_textures(
             &self.device,
-            &self.layouts.global.terrain_atlas_layout,
             [col_light, kinds],
+            &self.terrain_materials,
         )
     }
 
