@@ -19,11 +19,11 @@ The wood material uses the bark map on vertical faces and the top/end-grain maps
 | 0 | stone | Rock, GlowingRock |
 | 1 | cobblestone | WeakRock, GlowingWeakRock |
 | 2 | grass_block_top | Grass top faces |
-| 3 | dirt | Earth |
+| 3 | dirt | Earth and grass bottom faces |
 | 4 | sand | Sand |
 | 5 | oak_log | Wood side faces |
 | 6 | snow | Snow, ArtSnow |
-| 7 | grass_block_side | Grass side faces |
+| 7 | grass_block_side | Grass vertical side faces |
 | 8 | oak_log_top | Wood end faces |
 
 Files use the suffixes `_albedo.png`, `_normal.png`, and `_specular.png`.
