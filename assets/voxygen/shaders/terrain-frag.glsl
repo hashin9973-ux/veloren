@@ -209,6 +209,7 @@ void main() {
         float f0 = clamp(pbr_specular.g, 0.02, 0.9);
         float metallic = step(230.0 / 255.0, pbr_specular.g);
         vec3 base_color = pbr_albedo * f_col;
+        f_col = base_color;
         k_d = base_color * (1.0 - metallic);
         k_s = mix(vec3(f0), base_color, metallic);
         alpha = roughness;
