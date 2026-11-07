@@ -554,9 +554,10 @@ impl Renderer {
             "grass_block_top",
             "dirt",
             "sand",
-            "oak_planks",
+            "oak_log",
             "snow",
             "grass_block_side",
+            "oak_log_top",
         ];
         let load_pbr_layers = |suffix: &str| {
             pbr_material_names
