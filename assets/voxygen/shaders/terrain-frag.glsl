@@ -84,7 +84,10 @@ int terrain_pbr_layer(uint kind, vec3 face_normal) {
 // and height in A. Z is reconstructed because this pack uses the
 // two-channel normal format.
 vec3 decode_labpbr_normal(vec4 encoded, out float material_ao) {
+    // LabPBR normals use DirectX orientation (Y-), so invert green
+    // when mapping into this renderer's tangent-space convention.
     vec2 xy = encoded.rg * 2.0 - 1.0;
+    xy.y = -xy.y;
     float z = sqrt(max(1.0 - dot(xy, xy), 0.0));
     material_ao = encoded.b;
     return normalize(vec3(xy, z));
@@ -112,7 +115,7 @@ vec4 trace_pbr_parallax(
 ) {
     float first_height = sample_pbr_height(layer, source_uv, uv_dx, uv_dy);
     vec2 hit_uv = source_uv;
-    float hit_height = first_height;
+    float hit_height = mix(1.0, first_height, fade);
     float hit_trace_depth = 1.0;
 
     if (fade <= 0.0 || view_dir_ts.z >= 0.0 || first_height >= (254.0 / 255.0)) {
@@ -121,47 +124,56 @@ vec4 trace_pbr_parallax(
 
     const float POM_DEPTH = 0.25;
     const float POM_SAMPLES = 32.0;
-    const float TRACE_STEP = 1.0 / POM_SAMPLES;
+    float sample_count = max(1.0, POM_SAMPLES * fade);
+    float trace_step = 1.0 / sample_count;
     vec2 ray_step = view_dir_ts.xy * POM_DEPTH
         / (1.0 + (-view_dir_ts.z) * POM_SAMPLES);
 
     float jitter = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
     hit_uv += ray_step * jitter;
 
-    float previous_height = first_height;
+    float previous_height = mix(1.0, first_height, fade);
     float previous_trace_depth = 1.0;
-    int sample_count = max(1, int(POM_SAMPLES * fade));
+    vec2 previous_uv = hit_uv;
 
     for (int i = 1; i <= 32; ++i) {
-        if (i > sample_count) {
+        if (float(i) > sample_count) {
             break;
         }
 
-        float trace_depth = 1.0 - float(i) * TRACE_STEP;
-        float sampled_height = max(
+        float trace_depth = 1.0 - float(i) * trace_step;
+        float sampled_height = mix(
+            1.0,
             sample_pbr_height(layer, hit_uv, uv_dx, uv_dy),
-            1.0 - fade
+            fade
         );
 
-        previous_trace_depth = 1.0 - float(i - 1) * TRACE_STEP;
         hit_trace_depth = trace_depth;
         hit_height = sampled_height;
 
         if (sampled_height >= trace_depth) {
-            float crossing = (previous_trace_depth - previous_height)
-                / max(sampled_height - previous_height
-                    + previous_trace_depth - trace_depth, 0.00001);
-            hit_trace_depth = previous_trace_depth - clamp(crossing, 0.0, 1.0) * TRACE_STEP;
+            // Interpolate between the last sample above the surface and
+            // this sample below it. Use the same crossing fraction for UV,
+            // height, and trace depth to reduce layer-stepping artifacts.
+            float previous_gap = previous_trace_depth - previous_height;
+            float current_gap = sampled_height - trace_depth;
+            float crossing = previous_gap
+                / max(previous_gap + current_gap, 0.00001);
+            crossing = clamp(crossing, 0.0, 1.0);
+            hit_uv = mix(previous_uv, hit_uv, crossing);
+            hit_height = mix(previous_height, sampled_height, crossing);
+            hit_trace_depth = mix(previous_trace_depth, trace_depth, crossing);
             break;
         }
 
+        previous_uv = hit_uv;
         previous_height = sampled_height;
+        previous_trace_depth = trace_depth;
         hit_uv += ray_step;
     }
 
     return vec4(hit_uv, hit_height, hit_trace_depth);
 }
-
 // Parallax self-shadowing uses the same height field as the camera ray.
 // The caller folds this factor into the sun's existing shadow term so
 // ambient and moon illumination are not incorrectly occluded.
@@ -381,7 +393,7 @@ void main() {
         f_norm = normalize(pbr_tbn * pbr_normal_ts);
         float emission_code = pbr_specular.a * 255.0;
         pbr_emission = emission_code <= 254.5
-            ? clamp((emission_code - 0.5) / 254.0, 0.0, 1.0)
+            ? clamp(emission_code / 254.0, 0.0, 1.0)
             : 0.0;
     }
 
