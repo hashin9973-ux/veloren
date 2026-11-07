@@ -1,0 +1,35 @@
+name: Parallax PBR terrain checks
+
+on:
+  push:
+    branches:
+      - feature/parallax-pbr-terrain
+
+permissions:
+  contents: read
+
+concurrency:
+  group: parallax-pbr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  voxygen:
+    name: Format and type-check Voxygen
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install the repository-pinned Rust toolchain
+        run: rustup toolchain install nightly-2026-06-13 --profile minimal --component rustfmt
+
+      - name: Check Rust formatting
+        run: cargo +nightly-2026-06-13 fmt --all -- --check
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential pkg-config libasound2-dev libudev-dev libx11-dev libx11-xcb-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev
+
+      - name: Type-check Voxygen without optional integrations
+        run: cargo +nightly-2026-06-13 check --locked --no-default-features -p veloren-voxygen
