@@ -152,7 +152,6 @@ struct RendererBorrow<'frame> {
     locals: &'frame super::locals::Locals,
     views: &'frame super::Views,
     pipeline_modes: &'frame super::PipelineModes,
-    terrain_materials: &'frame terrain::TerrainPbrTextures,
     quad_index_buffer_u16: &'frame Buffer<u16>,
     quad_index_buffer_u32: &'frame Buffer<u32>,
     ui_premultiply_uploads: &'frame mut ui::BatchedUploads,
@@ -206,7 +205,6 @@ impl<'frame> Drawer<'frame> {
             locals: &renderer.locals,
             views: &renderer.views,
             pipeline_modes: &renderer.pipeline_modes,
-            terrain_materials: &renderer.terrain_materials,
             quad_index_buffer_u16: &renderer.quad_index_buffer_u16,
             quad_index_buffer_u32: &renderer.quad_index_buffer_u32,
             ui_premultiply_uploads: &mut renderer.ui_premultiply_uploads,
@@ -1076,7 +1074,6 @@ impl<'pass> FirstPassDrawer<'pass> {
         TerrainDrawer {
             render_pass,
             atlas_textures: None,
-            materials: &self.borrow.terrain_materials.bind_group,
         }
     }
 
@@ -1178,7 +1175,6 @@ impl<'pass_ref, 'pass: 'pass_ref> FigureDrawer<'pass_ref, 'pass> {
 pub struct TerrainDrawer<'pass_ref, 'pass: 'pass_ref> {
     render_pass: Scope<'pass_ref, wgpu::RenderPass<'pass>>,
     atlas_textures: Option<&'pass_ref Arc<AtlasTextures<terrain::Locals, TerrainAtlasData>>>,
-    materials: &'pass_ref wgpu::BindGroup,
 }
 
 impl<'pass_ref, 'pass: 'pass_ref> TerrainDrawer<'pass_ref, 'pass> {
@@ -1202,7 +1198,6 @@ impl<'pass_ref, 'pass: 'pass_ref> TerrainDrawer<'pass_ref, 'pass> {
         }
 
         let submodel = model.submodel(index_range);
-        self.render_pass.set_bind_group(4, self.materials, &[]);
 
         if self.atlas_textures
             // Check if we are still using the same atlas texture as the previous drawn
