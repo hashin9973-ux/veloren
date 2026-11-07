@@ -1,0 +1,166 @@
+name: Portable Windows build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/parallax-pbr-terrain
+    paths:
+      - "assets/**"
+      - "voxygen/**"
+      - "common/**"
+      - "client/**"
+      - "server/**"
+      - "network/**"
+      - "world/**"
+      - "rtsim/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain"
+      - ".cargo/**"
+      - ".github/workflows/portable-windows-build.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portable-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build standalone Windows x64 package
+    runs-on: windows-2025
+    timeout-minutes: 120
+    env:
+      VELOREN_USERDATA_STRATEGY: executable
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install repository-pinned Rust toolchain
+        shell: pwsh
+        run: rustup toolchain install nightly-2026-06-13 --profile minimal
+
+      - name: Verify build tools
+        shell: pwsh
+        run: |
+          rustc +nightly-2026-06-13 --version
+          cargo +nightly-2026-06-13 --version
+          cmake --version
+          if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) { throw "CMake is required to build the bundled shader compiler." }
+
+      - name: Check Rust formatting
+        shell: pwsh
+        run: cargo +nightly-2026-06-13 fmt --all -- --check
+
+      - name: Build Voxygen release binary
+        shell: pwsh
+        run: cargo +nightly-2026-06-13 build --locked --release --no-default-features --features "default-publish,shaderc-from-source" -p veloren-voxygen
+
+      - name: Assemble portable directory
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $package = Join-Path $env:RUNNER_TEMP "Veloren-Parallax-PBR-Windows-x64"
+          New-Item -ItemType Directory -Path $package -Force | Out-Null
+
+          $exe = Join-Path $env:GITHUB_WORKSPACE "target\release\veloren-voxygen.exe"
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+            throw "Voxygen release executable was not produced: $exe"
+          }
+          Copy-Item -LiteralPath $exe -Destination $package
+
+          $assets = Join-Path $env:GITHUB_WORKSPACE "assets"
+          if (-not (Test-Path -LiteralPath $assets -PathType Container)) {
+            throw "The game assets directory is missing."
+          }
+          Copy-Item -LiteralPath $assets -Destination (Join-Path $package "assets") -Recurse
+
+          Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE "LICENSE") -Destination $package
+
+          # App-local MSVC runtime DLLs keep the package independent of a
+          # separately installed Visual C++ Redistributable.
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
+            throw "Could not locate Visual Studio's vswhere utility to package the MSVC runtime."
+          }
+          $vsPath = & $vswhere -latest -products "*" -property installationPath
+          if (-not $vsPath) { throw "Could not locate the Visual Studio build tools." }
+
+          $redistRoot = Join-Path $vsPath "VC\Redist\MSVC"
+          $crtDirs = Get-ChildItem -LiteralPath $redistRoot -Directory |
+            Sort-Object Name -Descending |
+            ForEach-Object { Get-ChildItem -LiteralPath (Join-Path $_.FullName "x64") -Directory -ErrorAction SilentlyContinue } |
+            Where-Object { $_.Name -match "^Microsoft\.VC\d+\.CRT$" }
+          $crtDir = $crtDirs | Select-Object -First 1
+          if (-not $crtDir) { throw "The x64 MSVC C/C++ runtime redistributable was not found." }
+
+          $crtDlls = Get-ChildItem -LiteralPath $crtDir.FullName -Filter "*.dll" -File
+          if (-not ($crtDlls | Where-Object Name -eq "vcruntime140.dll")) {
+            throw "The selected MSVC runtime directory does not contain vcruntime140.dll."
+          }
+          $crtDlls | Copy-Item -Destination $package
+
+          @'
+          Veloren - Parallax PBR portable Windows build
+          ===============================================
+
+          Run: double-click veloren-voxygen.exe
+
+          No launcher, installer, Java runtime, or separate game-data download is
+          required. Keep the assets folder and the DLL files beside the executable.
+
+          This is a portable x64 Windows folder. Extract the entire ZIP to a
+          writable folder before starting the game. Do not run the executable
+          from inside the ZIP preview.
+
+          The game creates a userdata folder beside the executable. It stores
+          settings, profiles, logs, and other game data there. The folder is
+          intentionally kept with this portable copy.
+
+          A compatible graphics driver is still required. DirectX 12/Vulkan
+          support depends on the installed GPU and its driver.
+
+          This build comes from the Parallax PBR feature branch. Multiplayer
+          compatibility depends on the server version and may differ from
+          official Veloren releases.
+          '@ | Set-Content -LiteralPath (Join-Path $package "README-PORTABLE.txt") -Encoding utf8
+
+          $pbrDir = Join-Path $package "assets\voxygen\texture\pbr"
+          $pbrPngs = @(Get-ChildItem -LiteralPath $pbrDir -Filter "*.png" -File)
+          if ($pbrPngs.Count -ne 27) {
+            throw "Expected 27 terrain PBR PNGs, found $($pbrPngs.Count)."
+          }
+
+          $required = @("veloren-voxygen.exe", "assets", "LICENSE", "README-PORTABLE.txt", "vcruntime140.dll")
+          foreach ($name in $required) {
+            if (-not (Test-Path -LiteralPath (Join-Path $package $name))) {
+              throw "Portable package is missing required item: $name"
+            }
+          }
+
+          $zip = Join-Path $env:GITHUB_WORKSPACE "Veloren-Parallax-PBR-Windows-x64.zip"
+          if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
+          Compress-Archive -Path (Join-Path $package "*") -DestinationPath $zip -CompressionLevel Optimal
+
+          $hash = Get-FileHash -LiteralPath $zip -Algorithm SHA256
+          "$($hash.Hash)  $([IO.Path]::GetFileName($zip))" |
+            Set-Content -LiteralPath "$zip.sha256" -Encoding ascii
+
+          Write-Host "Portable package contents:"
+          Get-ChildItem -LiteralPath $package -File | Select-Object Name, Length
+          Write-Host "PBR texture count: $($pbrPngs.Count)"
+          Write-Host "Archive: $zip"
+          Write-Host "SHA256: $($hash.Hash)"
+
+      - name: Upload portable ZIP
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Veloren-Parallax-PBR-Windows-x64
+          path: |
+            Veloren-Parallax-PBR-Windows-x64.zip
+            Veloren-Parallax-PBR-Windows-x64.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
