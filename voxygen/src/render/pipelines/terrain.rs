@@ -1,8 +1,8 @@
 use super::{
     super::{
-        Bound, Consts, ExperimentalShader, GlobalsLayouts, PipelineModes, Vertex as VertexTrait,
+        texture::Texture, Bound, Consts, ExperimentalShader, GlobalsLayouts, PipelineModes,
+        Vertex as VertexTrait,
     },
-    texture::Texture,
     AtlasData,
 };
 use bytemuck::{Pod, Zeroable};
