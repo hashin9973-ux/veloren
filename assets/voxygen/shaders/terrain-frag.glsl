@@ -134,8 +134,9 @@ void main() {
         vec2 material_uv = fract(base_uv);
         vec3 layer_uv = vec3(material_uv, float(pbr_layer));
 
-        sampler2DArray normal_sampler = sampler2DArray(t_pbr_normal, s_pbr_normal);
-        float sampled_height = textureGrad(normal_sampler, layer_uv, uv_dx, uv_dy).a;
+        float sampled_height = textureGrad(
+            sampler2DArray(t_pbr_normal, s_pbr_normal), layer_uv, uv_dx, uv_dy
+        ).a;
         float view_distance = distance(cam_pos.xyz, f_pos);
         float parallax_fade = 1.0 - smoothstep(24.0, 48.0, view_distance);
 
@@ -159,19 +160,25 @@ void main() {
                 ray_depth -= layer_step;
                 material_uv += uv_step;
                 layer_uv.xy = material_uv;
-                previous_height = textureGrad(normal_sampler, layer_uv, uv_dx, uv_dy).a;
+                previous_height = textureGrad(
+                    sampler2DArray(t_pbr_normal, s_pbr_normal), layer_uv, uv_dx, uv_dy
+                ).a;
             }
             material_uv = mix(previous_uv, material_uv, parallax_fade);
             layer_uv.xy = material_uv;
         }
 
-        sampler2DArray albedo_sampler = sampler2DArray(t_pbr_albedo, s_pbr_albedo);
-        sampler2DArray specular_sampler = sampler2DArray(t_pbr_specular, s_pbr_specular);
-        pbr_albedo = textureGrad(albedo_sampler, layer_uv, uv_dx, uv_dy).rgb;
+        pbr_albedo = textureGrad(
+            sampler2DArray(t_pbr_albedo, s_pbr_albedo), layer_uv, uv_dx, uv_dy
+        ).rgb;
         pbr_normal_ts = normalize(
-            textureGrad(normal_sampler, layer_uv, uv_dx, uv_dy).xyz * 2.0 - 1.0
+            textureGrad(
+                sampler2DArray(t_pbr_normal, s_pbr_normal), layer_uv, uv_dx, uv_dy
+            ).xyz * 2.0 - 1.0
         );
-        pbr_specular = textureGrad(specular_sampler, layer_uv, uv_dx, uv_dy);
+        pbr_specular = textureGrad(
+            sampler2DArray(t_pbr_specular, s_pbr_specular), layer_uv, uv_dx, uv_dy
+        );
     }
 
 #if (SHADOW_MODE == SHADOW_MODE_CHEAP || SHADOW_MODE == SHADOW_MODE_MAP || FLUID_MODE >= FLUID_MODE_MEDIUM)
