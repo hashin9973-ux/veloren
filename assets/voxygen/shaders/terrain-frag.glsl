@@ -61,17 +61,22 @@ float vmin(vec2 v) {
     return min(v.x, v.y);
 }
 
-// Only opaque, full-cube terrain kinds are mapped here. Leaves, sprites,
-// flowers, fluids, and miscellaneous decorative geometry deliberately fall
-// through to Veloren's existing material path.
+// Select the closest pack equivalents for Veloren's native material kinds.
+// The complete 147-layer pack remains available in the arrays; Veloren does
+// not store Minecraft's per-block identifier, so only kinds with a clear
+// native counterpart are selected here.
 int terrain_pbr_layer(uint kind, vec3 face_normal) {
-    if (kind == 0x10u || kind == 0x13u) return 0; // rock
-    if (kind == 0x11u || kind == 0x14u) return 1; // weak rock
-    if (kind == 0x20u) return face_normal.z > 0.5 ? 2 : (face_normal.z < -0.5 ? 3 : 7); // grass top / dirt bottom / side
-    if (kind == 0x30u) return 3; // earth
-    if (kind == 0x31u) return 4; // sand
-    if (kind == 0x40u) return abs(face_normal.z) > 0.5 ? 8 : 5; // wood bark / end grain
-    if (kind == 0x21u || kind == 0x22u) return 6; // snow
+    if (kind == 0x10u || kind == 0x13u) return 122; // stone
+    if (kind == 0x11u || kind == 0x14u) return 16; // cobblestone
+    if (kind == 0x20u) {
+        return face_normal.z > 0.5 ? 58 : (face_normal.z < -0.5 ? 41 : 55);
+    }
+    if (kind == 0x30u) return 41; // dirt
+    if (kind == 0x31u) return 109; // sand
+    if (kind == 0x40u) return abs(face_normal.z) > 0.5 ? 81 : 80; // log end / bark
+    if (kind == 0x21u || kind == 0x22u) return 116; // snow
+    if (kind == 0x41u) return 79; // oak leaves
+    if (kind == 0x43u) return 50; // glass-like ice surface
     return -1;
 }
 
