@@ -580,7 +580,6 @@ impl Renderer {
         let terrain_materials = terrain::TerrainPbrTextures::new(
             &device,
             &queue,
-            &layouts.terrain,
             Vec2::new(64, 64),
             &terrain_albedo_layers,
             &terrain_normal_layers,
