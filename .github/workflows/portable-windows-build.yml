@@ -41,7 +41,7 @@ jobs:
 
       - name: Install repository-pinned Rust toolchain
         shell: pwsh
-        run: rustup toolchain install nightly-2026-06-13 --profile minimal
+        run: rustup toolchain install nightly-2026-06-13 --profile minimal --component rustfmt
 
       - name: Verify build tools
         shell: pwsh
