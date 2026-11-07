@@ -35,6 +35,14 @@ uniform utexture2D t_kind;
 layout(set = 2, binding = 3)
 uniform sampler s_kind;
 
+// Terrain PBR arrays: layer order is defined in renderer/mod.rs.
+layout(set = 4, binding = 0) uniform texture2DArray t_pbr_albedo;
+layout(set = 4, binding = 1) uniform sampler s_pbr_albedo;
+layout(set = 4, binding = 2) uniform texture2DArray t_pbr_normal;
+layout(set = 4, binding = 3) uniform sampler s_pbr_normal;
+layout(set = 4, binding = 4) uniform texture2DArray t_pbr_specular;
+layout(set = 4, binding = 5) uniform sampler s_pbr_specular;
+
 layout (std140, set = 3, binding = 0)
 uniform u_locals {
     mat4 model_mat;
@@ -51,6 +59,20 @@ layout(location = 1) out uvec4 tgt_mat;
 
 float vmin(vec2 v) {
     return min(v.x, v.y);
+}
+
+// Only opaque, full-cube terrain kinds are mapped here. Leaves, sprites,
+// flowers, fluids, and miscellaneous decorative geometry deliberately fall
+// through to Veloren's existing material path.
+int terrain_pbr_layer(uint kind, vec3 face_normal) {
+    if (kind == 0x10u || kind == 0x13u) return 0; // rock
+    if (kind == 0x11u || kind == 0x14u) return 1; // weak rock
+    if (kind == 0x20u) return abs(face_normal.z) > 0.5 ? 2 : 7; // grass top/side
+    if (kind == 0x30u) return 3; // earth
+    if (kind == 0x31u) return 4; // sand
+    if (kind == 0x40u) return 5; // wood
+    if (kind == 0x21u || kind == 0x22u) return 6; // snow
+    return -1;
 }
 
 void main() {
@@ -88,6 +110,70 @@ void main() {
     vec3 cam_to_frag = normalize(f_pos - cam_pos.xyz);
     vec3 view_dir = -cam_to_frag;
 
+    int pbr_layer = faces_fluid ? -1 : terrain_pbr_layer(f_kind, face_norm);
+    vec3 pbr_albedo = vec3(1.0);
+    vec3 pbr_normal_ts = vec3(0.0, 0.0, 1.0);
+    vec4 pbr_specular = vec4(1.0, 0.04, 0.0, 1.0);
+    mat3 pbr_tbn = mat3(1.0);
+
+    if (pbr_layer >= 0) {
+        vec3 tangent;
+        vec3 bitangent;
+        if (abs(face_norm.x) > 0.5) {
+            tangent = vec3(0.0, 1.0, 0.0);
+        } else {
+            tangent = vec3(1.0, 0.0, 0.0);
+        }
+        bitangent = normalize(cross(face_norm, tangent));
+        pbr_tbn = mat3(tangent, bitangent, face_norm);
+
+        vec3 world_pos = f_pos + focus_off.xyz;
+        vec2 base_uv = vec2(dot(world_pos, tangent), dot(world_pos, bitangent));
+        vec2 uv_dx = dFdx(base_uv);
+        vec2 uv_dy = dFdy(base_uv);
+        vec2 material_uv = fract(base_uv);
+        vec3 layer_uv = vec3(material_uv, float(pbr_layer));
+
+        sampler2DArray normal_sampler = sampler2DArray(t_pbr_normal, s_pbr_normal);
+        float sampled_height = textureGrad(normal_sampler, layer_uv, uv_dx, uv_dy).a;
+        float view_distance = distance(cam_pos.xyz, f_pos);
+        float parallax_fade = 1.0 - smoothstep(24.0, 48.0, view_distance);
+
+        // Relief/POM uses the normal map alpha channel as height. A fully
+        // opaque alpha value is treated as a flat surface (no displacement).
+        if (parallax_fade > 0.0 && sampled_height < (254.0 / 255.0)) {
+            vec3 view_ts = transpose(pbr_tbn) * normalize(view_dir);
+            float layer_count = mix(24.0, 8.0, abs(view_ts.z));
+            float layer_step = 1.0 / layer_count;
+            vec2 uv_step = view_ts.xy
+                * (0.12 * parallax_fade)
+                / (max(abs(view_ts.z), 0.15) * layer_count);
+            vec2 previous_uv = material_uv;
+            float previous_height = sampled_height;
+            float ray_depth = 1.0;
+            for (int step_index = 0; step_index < 24; ++step_index) {
+                if (float(step_index) >= layer_count || previous_height >= ray_depth) {
+                    break;
+                }
+                previous_uv = material_uv;
+                ray_depth -= layer_step;
+                material_uv += uv_step;
+                layer_uv.xy = material_uv;
+                previous_height = textureGrad(normal_sampler, layer_uv, uv_dx, uv_dy).a;
+            }
+            material_uv = mix(previous_uv, material_uv, parallax_fade);
+            layer_uv.xy = material_uv;
+        }
+
+        sampler2DArray albedo_sampler = sampler2DArray(t_pbr_albedo, s_pbr_albedo);
+        sampler2DArray specular_sampler = sampler2DArray(t_pbr_specular, s_pbr_specular);
+        pbr_albedo = textureGrad(albedo_sampler, layer_uv, uv_dx, uv_dy).rgb;
+        pbr_normal_ts = normalize(
+            textureGrad(normal_sampler, layer_uv, uv_dx, uv_dy).xyz * 2.0 - 1.0
+        );
+        pbr_specular = textureGrad(specular_sampler, layer_uv, uv_dx, uv_dy);
+    }
+
 #if (SHADOW_MODE == SHADOW_MODE_CHEAP || SHADOW_MODE == SHADOW_MODE_MAP || FLUID_MODE >= FLUID_MODE_MEDIUM)
     float f_alt = alt_at(f_pos.xy);
 #elif (SHADOW_MODE == SHADOW_MODE_NONE || FLUID_MODE == FLUID_MODE_LOW)
@@ -107,6 +193,20 @@ void main() {
     vec3 k_a = vec3(1.0);
     vec3 k_d = vec3(1.0);
     vec3 k_s = vec3(R_s);
+
+    if (pbr_layer >= 0) {
+        // LabPBR: R stores inverted roughness and G stores F0, with
+        // conductor IDs in the upper range. The initial pass uses the
+        // metallic albedo as conductor F0 and preserves existing lighting.
+        float roughness = max(pow(1.0 - pbr_specular.r, 2.0), 0.04);
+        float f0 = clamp(pbr_specular.g, 0.02, 0.9);
+        float metallic = step(230.0 / 255.0, pbr_specular.g);
+        vec3 base_color = pbr_albedo * f_col;
+        k_d = base_color * (1.0 - metallic);
+        k_s = mix(vec3(f0), base_color, metallic);
+        alpha = roughness;
+        f_norm = normalize(pbr_tbn * pbr_normal_ts);
+    }
 
     float f_alpha = 1.0;
     #ifdef RAIN_ENABLED
