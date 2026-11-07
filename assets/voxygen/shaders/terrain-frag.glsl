@@ -67,7 +67,7 @@ float vmin(vec2 v) {
 int terrain_pbr_layer(uint kind, vec3 face_normal) {
     if (kind == 0x10u || kind == 0x13u) return 0; // rock
     if (kind == 0x11u || kind == 0x14u) return 1; // weak rock
-    if (kind == 0x20u) return abs(face_normal.z) > 0.5 ? 2 : 7; // grass top/side
+    if (kind == 0x20u) return face_normal.z > 0.5 ? 2 : (face_normal.z < -0.5 ? 3 : 7); // grass top / dirt bottom / side
     if (kind == 0x30u) return 3; // earth
     if (kind == 0x31u) return 4; // sand
     if (kind == 0x40u) return abs(face_normal.z) > 0.5 ? 8 : 5; // wood bark / end grain
