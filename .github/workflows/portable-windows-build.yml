@@ -130,8 +130,8 @@ jobs:
 
           $pbrDir = Join-Path $package "assets\voxygen\texture\pbr"
           $pbrPngs = @(Get-ChildItem -LiteralPath $pbrDir -Filter "*.png" -File)
-          if ($pbrPngs.Count -ne 27) {
-            throw "Expected 27 terrain PBR PNGs, found $($pbrPngs.Count)."
+          if ($pbrPngs.Count -ne 441) {
+            throw "Expected 441 terrain PBR PNGs (147 material triplets), found $($pbrPngs.Count)."
           }
 
           $required = @("veloren-voxygen.exe", "assets", "LICENSE", "README-PORTABLE.txt", "vcruntime140.dll")
