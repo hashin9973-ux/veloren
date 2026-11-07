@@ -1,43 +1,39 @@
-# Terrain PBR materials
+# Parallax PBR block materials
 
-This directory contains the initial terrain-only material set used by Voxygen's
-terrain shader. The diffuse, normal, and specular maps are loaded as matching
-2D-array layers. Keep the three files for a material together and preserve the
-normal-map alpha channel: it stores the height field used by parallax occlusion
-mapping (POM).
+This directory stores the static material maps from the pack's
+`assets/minecraft/textures/block` directory, converted to Veloren's asset
+naming convention.
 
-All source maps in this first set are 64x64 RGBA PNGs.
+The complete block-folder inventory has **147 static materials** and
+**441 RGBA PNGs**:
 
-## Layer order
+- `<material>_albedo.png`: sRGB base color
+- `<material>_normal.png`: linear tangent-space normal data; blue is ambient
+  occlusion and alpha is the parallax height field
+- `<material>_specular.png`: linear LabPBR material data
 
-The wood material uses the bark map on vertical faces and the top/end-grain maps on horizontal faces. The order below must match `pbr_material_names` in
-`voxygen/src/render/renderer/mod.rs` and `terrain_pbr_layer` in
+Animated fire sheets are excluded because they have no normal/specular map
+triplet. Files outside the block texture directory (entity, armor, boat,
+painting, and other non-block textures) are also excluded.
+
+All 147 layers are loaded into matching 2D texture arrays. The layer order is
+the alphabetical order in `pbr_material_names` in
+`voxygen/src/render/renderer/mod.rs`; the corresponding native block-kind
+selection is in `terrain_pbr_layer` in
 `assets/voxygen/shaders/terrain-frag.glsl`.
 
-| Layer | Material | Veloren block kinds |
-| ---: | --- | --- |
-| 0 | stone | Rock, GlowingRock |
-| 1 | cobblestone | WeakRock, GlowingWeakRock |
-| 2 | grass_block_top | Grass top faces |
-| 3 | dirt | Earth and grass bottom faces |
-| 4 | sand | Sand |
-| 5 | oak_log | Wood side faces |
-| 6 | snow | Snow, ArtSnow |
-| 7 | grass_block_side | Grass vertical side faces |
-| 8 | oak_log_top | Wood end faces |
+## Renderer mapping constraint
 
-Files use the suffixes `_albedo.png`, `_normal.png`, and `_specular.png`.
+Veloren's current `Block` representation stores a `BlockKind` and an RGB
+color, not a Minecraft block identifier for every one of these 147 names.
+This integration therefore preserves the existing world/save/network block
+format and maps the native terrain kinds to the closest supported material
+layers (rock, weak rock, grass faces, earth, sand, wood faces, snow, leaves,
+and ice-like surfaces). The other layers are present and GPU-uploaded, but
+cannot be selected individually until Veloren gains per-block material IDs or
+equivalent explicit material metadata.
 
-## Material handling
-
-- The normal map is sampled in tangent space; its alpha channel is the POM
-  height field. Do not strip or premultiply that alpha.
-- The specular map is read as linear data using the LabPBR channel conventions:
-  red provides inverted roughness and green provides F0/conductor identification.
-- Diffuse maps use an sRGB GPU format. Normal and specular maps use linear UNORM.
-- POM is faded with distance and uses world-aligned planar UVs so adjacent terrain
-  faces do not depend on mesh atlas placement.
-
-This initial set is deliberately limited to opaque terrain block kinds. Leaves,
-ArtLeaves, plants, flowers, sprites, fluids, and miscellaneous decorative blocks
-are not mapped and continue through Veloren's existing material path.
+The shader ports the pack's POM behavior using the normal-map alpha height
+field, the 0.25 depth scale, 32 view-ray samples, 16 self-shadow samples, and
+the 24–48 world-unit distance fade. LabPBR roughness/F0 and conductor codes,
+normal reconstruction, and AO are decoded in the terrain fragment path.
