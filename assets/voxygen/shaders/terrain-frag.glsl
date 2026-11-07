@@ -75,14 +75,143 @@ int terrain_pbr_layer(uint kind, vec3 face_normal) {
     return -1;
 }
 
+// LabPBR normal maps store tangent-space X/Y in R/G, AO in B,
+// and height in A. Z is reconstructed because this pack uses the
+// two-channel normal format.
+vec3 decode_labpbr_normal(vec4 encoded, out float material_ao) {
+    vec2 xy = encoded.rg * 2.0 - 1.0;
+    float z = sqrt(max(1.0 - dot(xy, xy), 0.0));
+    material_ao = encoded.b;
+    return normalize(vec3(xy, z));
+}
+
+float sample_pbr_height(int layer, vec2 uv, vec2 uv_dx, vec2 uv_dy) {
+    return textureGrad(
+        sampler2DArray(t_pbr_normal, s_pbr_normal),
+        vec3(fract(uv), float(layer)),
+        uv_dx,
+        uv_dy
+    ).a;
+}
+
+// Fixed 32-layer POM march, with the pack's 0.25 block-relative depth,
+// view-distance fade, blue-noise-style per-fragment phase, and a
+// depth-crossing interpolation used for the final trace depth.
+vec4 trace_pbr_parallax(
+    int layer,
+    vec2 source_uv,
+    vec2 uv_dx,
+    vec2 uv_dy,
+    vec3 view_dir_ts,
+    float fade
+) {
+    float first_height = sample_pbr_height(layer, source_uv, uv_dx, uv_dy);
+    vec2 hit_uv = source_uv;
+    float hit_height = first_height;
+    float hit_trace_depth = 1.0;
+
+    if (fade <= 0.0 || view_dir_ts.z >= 0.0 || first_height >= (254.0 / 255.0)) {
+        return vec4(source_uv, first_height, 1.0);
+    }
+
+    const float POM_DEPTH = 0.25;
+    const float POM_SAMPLES = 32.0;
+    const float TRACE_STEP = 1.0 / POM_SAMPLES;
+    vec2 ray_step = view_dir_ts.xy * POM_DEPTH
+        / (1.0 + (-view_dir_ts.z) * POM_SAMPLES);
+
+    float jitter = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+    hit_uv += ray_step * jitter;
+
+    float previous_height = first_height;
+    float previous_trace_depth = 1.0;
+    int sample_count = max(1, int(POM_SAMPLES * fade));
+
+    for (int i = 1; i <= 32; ++i) {
+        if (i > sample_count) {
+            break;
+        }
+
+        float trace_depth = 1.0 - float(i) * TRACE_STEP;
+        float sampled_height = max(
+            sample_pbr_height(layer, hit_uv, uv_dx, uv_dy),
+            1.0 - fade
+        );
+
+        previous_trace_depth = 1.0 - float(i - 1) * TRACE_STEP;
+        hit_trace_depth = trace_depth;
+        hit_height = sampled_height;
+
+        if (sampled_height >= trace_depth) {
+            float crossing = (previous_trace_depth - previous_height)
+                / max(sampled_height - previous_height
+                    + previous_trace_depth - trace_depth, 0.00001);
+            hit_trace_depth = previous_trace_depth - clamp(crossing, 0.0, 1.0) * TRACE_STEP;
+            break;
+        }
+
+        previous_height = sampled_height;
+        hit_uv += ray_step;
+    }
+
+    return vec4(hit_uv, hit_height, hit_trace_depth);
+}
+
+// Parallax self-shadowing uses the same height field as the camera ray.
+// The caller folds this factor into the sun's existing shadow term so
+// ambient and moon illumination are not incorrectly occluded.
+float pbr_parallax_shadow(
+    int layer,
+    vec2 hit_uv,
+    vec2 uv_dx,
+    vec2 uv_dy,
+    vec3 light_dir_ts,
+    float surface_height,
+    float depth_offset,
+    float fade
+) {
+    float ndotl = dot(vec3(0.0, 0.0, 1.0), light_dir_ts);
+    if (fade <= 0.01 || ndotl <= 0.01) {
+        return 1.0;
+    }
+
+    light_dir_ts.xy *= 0.3;
+    const float SHADOW_SAMPLES = 16.0;
+    float step_size = 1.28 / SHADOW_SAMPLES;
+    float jitter = fract(sin(dot(gl_FragCoord.yx, vec2(39.3468, 11.135))) * 24634.6345);
+    vec3 start_offset = step_size * light_dir_ts * jitter;
+    start_offset.z -= depth_offset;
+
+    float visibility = 1.0;
+    for (int i = 0; i < 16; ++i) {
+        float ray_height = surface_height
+            + light_dir_ts.z * step_size * float(i)
+            + start_offset.z;
+        if (ray_height > 1.0) {
+            break;
+        }
+
+        vec2 shadow_uv = hit_uv
+            + light_dir_ts.xy * (step_size * float(i))
+            + start_offset.xy;
+        float sampled_height = sample_pbr_height(layer, shadow_uv, uv_dx, uv_dy);
+        visibility *= clamp(1.0 - (sampled_height - ray_height) * 40.0, 0.0, 1.0);
+        if (visibility < 0.01) {
+            break;
+        }
+    }
+
+    return mix(1.0, visibility, fade);
+}
+
 void main() {
     // First 3 normals are negative, next 3 are positive
     const vec3 normals[8] = vec3[](vec3(-1,0,0), vec3(1,0,0), vec3(0,-1,0), vec3(0,1,0), vec3(0,0,-1), vec3(0,0,1), vec3(0,0,0), vec3(0,0,0));
 
-    vec2 f_uv_pos = f_uv_pos + atlas_offs.xy;
+    vec2 atlas_uv = f_uv_pos + vec2(atlas_offs.xy);
     float f_light, f_glow, f_ao, f_sky_exposure;
     uint f_kind;
-    vec3 f_col = greedy_extract_col_light_kind_terrain(t_col_light, s_col_light, t_kind, f_uv_pos, f_light, f_glow, f_ao, f_sky_exposure, f_kind);
+    vec3 f_col = greedy_extract_col_light_kind_terrain(t_col_light, s_col_light, t_kind, atlas_uv, f_light, f_glow, f_ao, f_sky_exposure, f_kind);
 
     uint f_mat = MAT_BLOCK;
 
@@ -114,73 +243,59 @@ void main() {
     vec3 pbr_albedo = vec3(1.0);
     vec3 pbr_normal_ts = vec3(0.0, 0.0, 1.0);
     vec4 pbr_specular = vec4(1.0, 0.04, 0.0, 1.0);
+    float pbr_material_ao = 1.0;
+    float pbr_emission = 0.0;
+    float pbr_shadow = 1.0;
     mat3 pbr_tbn = mat3(1.0);
 
     if (pbr_layer >= 0) {
-        vec3 tangent;
-        vec3 bitangent;
-        if (abs(face_norm.x) > 0.5) {
-            tangent = vec3(0.0, 1.0, 0.0);
-        } else {
-            tangent = vec3(1.0, 0.0, 0.0);
-        }
-        bitangent = normalize(cross(face_norm, tangent));
+        vec3 tangent = abs(face_norm.x) > 0.5
+            ? vec3(0.0, 1.0, 0.0)
+            : vec3(1.0, 0.0, 0.0);
+        vec3 bitangent = normalize(cross(face_norm, tangent));
         pbr_tbn = mat3(tangent, bitangent, face_norm);
 
         vec3 world_pos = f_pos + focus_off.xyz;
         vec2 base_uv = vec2(dot(world_pos, tangent), dot(world_pos, bitangent));
         vec2 uv_dx = dFdx(base_uv);
         vec2 uv_dy = dFdy(base_uv);
-        vec2 material_uv = fract(base_uv);
-        vec3 layer_uv = vec3(material_uv, float(pbr_layer));
-
-        float sampled_height = textureGrad(
-            sampler2DArray(t_pbr_normal, s_pbr_normal), layer_uv, uv_dx, uv_dy
-        ).a;
         float view_distance = distance(cam_pos.xyz, f_pos);
         float parallax_fade = 1.0 - smoothstep(24.0, 48.0, view_distance);
+        vec3 view_dir_ts = transpose(pbr_tbn) * cam_to_frag;
 
-        // Relief/POM uses the normal map alpha channel as height. A fully
-        // opaque alpha value is treated as a flat surface (no displacement).
-        vec3 view_ts = transpose(pbr_tbn) * normalize(cam_to_frag);
-        if (parallax_fade > 0.0 && view_ts.z < 0.0
-            && sampled_height < (254.0 / 255.0)) {
-            // The supplied pack defaults to 32 POM samples and 0.25 depth.
-            // Reduce samples on front-facing views, where displacement is small.
-            float layer_count = mix(32.0, 8.0, abs(view_ts.z));
-            float layer_step = 1.0 / layer_count;
-            vec2 uv_step = view_ts.xy
-                * (0.25 * parallax_fade)
-                / (max(-view_ts.z, 0.15) * layer_count);
-            float previous_height = max(sampled_height, 1.0 - parallax_fade);
-            float ray_depth = 1.0;
-            for (int step_index = 0; step_index < 32; ++step_index) {
-                if (float(step_index) >= layer_count || previous_height >= ray_depth) {
-                    break;
-                }
-                ray_depth -= layer_step;
-                material_uv += uv_step;
-                layer_uv.xy = material_uv;
-                previous_height = max(
-                    textureGrad(
-                        sampler2DArray(t_pbr_normal, s_pbr_normal), layer_uv, uv_dx, uv_dy
-                    ).a,
-                    1.0 - parallax_fade
-                );
-            }
-            layer_uv.xy = material_uv;
-        }
+        // POM returns the parallax hit position, sampled height, and
+        // interpolated trace depth. Texture derivatives remain those of
+        // the original planar UV so the march does not introduce unstable
+        // derivative discontinuities.
+        vec4 parallax_hit = trace_pbr_parallax(
+            pbr_layer, base_uv, uv_dx, uv_dy, view_dir_ts, parallax_fade
+        );
+        vec2 material_uv = parallax_hit.xy;
+        vec3 layer_uv = vec3(fract(material_uv), float(pbr_layer));
 
         pbr_albedo = textureGrad(
             sampler2DArray(t_pbr_albedo, s_pbr_albedo), layer_uv, uv_dx, uv_dy
         ).rgb;
-        pbr_normal_ts = normalize(
-            textureGrad(
-                sampler2DArray(t_pbr_normal, s_pbr_normal), layer_uv, uv_dx, uv_dy
-            ).xyz * 2.0 - 1.0
+        vec4 normal_sample = textureGrad(
+            sampler2DArray(t_pbr_normal, s_pbr_normal), layer_uv, uv_dx, uv_dy
         );
+        pbr_normal_ts = decode_labpbr_normal(normal_sample, pbr_material_ao);
         pbr_specular = textureGrad(
             sampler2DArray(t_pbr_specular, s_pbr_specular), layer_uv, uv_dx, uv_dy
+        );
+
+        float initial_height = sample_pbr_height(pbr_layer, base_uv, uv_dx, uv_dy);
+        float depth_offset = max(initial_height - parallax_hit.z, 0.0);
+        vec3 light_dir_ts = transpose(pbr_tbn) * (-sun_dir.xyz);
+        pbr_shadow = pbr_parallax_shadow(
+            pbr_layer,
+            material_uv,
+            uv_dx,
+            uv_dy,
+            light_dir_ts,
+            normal_sample.a,
+            depth_offset,
+            parallax_fade
         );
     }
 
@@ -205,18 +320,62 @@ void main() {
     vec3 k_s = vec3(R_s);
 
     if (pbr_layer >= 0) {
-        // LabPBR: R stores inverted roughness and G stores F0, with
-        // conductor IDs in the upper range. The initial pass uses the
-        // metallic albedo as conductor F0 and preserves existing lighting.
-        float roughness = max(pow(1.0 - pbr_specular.r, 2.0), 0.04);
-        float f0 = clamp(pbr_specular.g, 0.02, 0.9);
-        float metallic = step(230.0 / 255.0, pbr_specular.g);
+        // LabPBR: red is inverted perceptual roughness; green is
+        // dielectric F0 or the conductor/material code. Values >= 230
+        // select the conductor path.
+        float roughness = max(pow(1.0 - pbr_specular.r, 2.0), 0.002);
+        float encoded_f0 = floor(pbr_specular.g * 255.0 + 0.5);
+        bool conductor = encoded_f0 >= 230.0;
         vec3 base_color = pbr_albedo * f_col;
+
         f_col = base_color;
-        k_d = base_color * (1.0 - metallic);
-        k_s = mix(vec3(f0), base_color, metallic);
+        if (conductor) {
+            // LabPBR conductor records (230-237) have a metal-specific
+            // complex IOR. Use the corresponding normal-incidence F0
+            // triplet in Veloren's existing Fresnel input.
+            if (encoded_f0 <= 237.0) {
+                int metal_id = clamp(int(encoded_f0) - 230, 0, 7);
+                const vec3 eta_table[8] = vec3[8](
+                    vec3(2.9114, 2.9497, 2.5845),
+                    vec3(0.18299, 0.42108, 1.3734),
+                    vec3(1.3456, 0.96521, 0.61722),
+                    vec3(3.1071, 3.1812, 2.3230),
+                    vec3(0.27105, 0.67693, 1.3164),
+                    vec3(1.9100, 1.8300, 1.4400),
+                    vec3(2.3757, 2.0847, 1.8453),
+                    vec3(0.15943, 0.14512, 0.13547)
+                );
+                const vec3 etak_table[8] = vec3[8](
+                    vec3(3.0893, 2.9318, 2.7670),
+                    vec3(3.4242, 2.3459, 1.7704),
+                    vec3(7.4746, 6.3995, 5.3031),
+                    vec3(3.3314, 3.3291, 3.1350),
+                    vec3(3.6092, 2.6248, 2.2921),
+                    vec3(3.5100, 3.4000, 3.1800),
+                    vec3(4.2655, 3.7153, 3.1365),
+                    vec3(3.9291, 3.1900, 2.3808)
+                );
+                vec3 eta = eta_table[metal_id];
+                vec3 etak = etak_table[metal_id];
+                vec3 eta2 = eta * eta;
+                vec3 etak2 = etak * etak;
+                k_s = ((eta - 1.0) * (eta - 1.0) + etak2)
+                    / ((eta + 1.0) * (eta + 1.0) + etak2);
+            } else {
+                // Non-complex conductors use the texture albedo as the
+                // colored Fresnel reflectance, as specified by LabPBR.
+                k_s = clamp(base_color, 0.0, 0.99);
+            }
+            k_d = vec3(0.0);
+        } else {
+            float f0 = clamp(pbr_specular.g, 0.02, 0.9);
+            k_d = base_color;
+            k_s = vec3(f0);
+        }
+
         alpha = roughness;
         f_norm = normalize(pbr_tbn * pbr_normal_ts);
+        pbr_emission = clamp(pbr_specular.a, 0.0, 1.0);
     }
 
     float f_alpha = 1.0;
@@ -301,6 +460,9 @@ void main() {
     float moon_shade_frac = 1.0;
 
     DirectionalLight sun_info = get_sun_info(sun_dir, sun_shade_frac, /*sun_pos*/f_pos);
+    // Only the directional sun contribution receives the height-field
+    // self-shadow; sky fill and moonlight retain their existing visibility.
+    sun_info.shadow *= pbr_shadow;
     DirectionalLight moon_info = get_moon_info(moon_dir, moon_shade_frac/*, light_pos*/);
 
     #ifdef EXPERIMENTAL_DIRECTIONALSHADOWMAPTEXELGRID
@@ -368,8 +530,9 @@ void main() {
 
     max_light += lights_at(f_pos, f_norm, view_dir, mu, cam_attenuation, fluid_alt, k_a, k_d, k_s, alpha, f_norm, 1.0, emitted_light, reflected_light);
 
-    emitted_light *= mix(1.0, f_ao, 0.5);
-    reflected_light *= mix(1.0, f_ao, 0.5);
+    emitted_light *= mix(1.0, f_ao, 0.5) * pbr_material_ao;
+    reflected_light *= mix(1.0, f_ao, 0.5) * pbr_material_ao;
+    emitted_light += pbr_albedo * pbr_emission;
 
     float point_shadow = shadow_at(f_pos, f_norm);
     reflected_light *= point_shadow;
