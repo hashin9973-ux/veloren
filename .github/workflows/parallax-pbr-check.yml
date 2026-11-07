@@ -29,7 +29,7 @@ jobs:
       - name: Install native build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes build-essential pkg-config libasound2-dev libudev-dev libx11-dev libx11-xcb-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev
+          sudo apt-get install --yes build-essential binutils mold pkg-config libasound2-dev libudev-dev libx11-dev libx11-xcb-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev
 
       - name: Type-check Voxygen without optional integrations
         run: cargo +nightly-2026-06-13 check --locked --no-default-features -p veloren-voxygen
