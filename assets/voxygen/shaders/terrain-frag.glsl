@@ -142,16 +142,19 @@ void main() {
 
         // Relief/POM uses the normal map alpha channel as height. A fully
         // opaque alpha value is treated as a flat surface (no displacement).
-        if (parallax_fade > 0.0 && sampled_height < (254.0 / 255.0)) {
-            vec3 view_ts = transpose(pbr_tbn) * normalize(view_dir);
-            float layer_count = mix(24.0, 8.0, abs(view_ts.z));
+        vec3 view_ts = transpose(pbr_tbn) * normalize(cam_to_frag);
+        if (parallax_fade > 0.0 && view_ts.z < 0.0
+            && sampled_height < (254.0 / 255.0)) {
+            // The supplied pack defaults to 32 POM samples and 0.25 depth.
+            // Reduce samples on front-facing views, where displacement is small.
+            float layer_count = mix(32.0, 8.0, abs(view_ts.z));
             float layer_step = 1.0 / layer_count;
             vec2 uv_step = view_ts.xy
-                * (0.12 * parallax_fade)
-                / (max(abs(view_ts.z), 0.15) * layer_count);
+                * (0.25 * parallax_fade)
+                / (max(-view_ts.z, 0.15) * layer_count);
             float previous_height = sampled_height;
             float ray_depth = 1.0;
-            for (int step_index = 0; step_index < 24; ++step_index) {
+            for (int step_index = 0; step_index < 32; ++step_index) {
                 if (float(step_index) >= layer_count || previous_height >= ray_depth) {
                     break;
                 }
