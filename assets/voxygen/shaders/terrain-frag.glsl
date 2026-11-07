@@ -36,12 +36,12 @@ layout(set = 2, binding = 3)
 uniform sampler s_kind;
 
 // Terrain PBR arrays: layer order is defined in renderer/mod.rs.
-layout(set = 4, binding = 0) uniform texture2DArray t_pbr_albedo;
-layout(set = 4, binding = 1) uniform sampler s_pbr_albedo;
-layout(set = 4, binding = 2) uniform texture2DArray t_pbr_normal;
-layout(set = 4, binding = 3) uniform sampler s_pbr_normal;
-layout(set = 4, binding = 4) uniform texture2DArray t_pbr_specular;
-layout(set = 4, binding = 5) uniform sampler s_pbr_specular;
+layout(set = 2, binding = 4) uniform texture2DArray t_pbr_albedo;
+layout(set = 2, binding = 5) uniform sampler s_pbr_albedo;
+layout(set = 2, binding = 6) uniform texture2DArray t_pbr_normal;
+layout(set = 2, binding = 7) uniform sampler s_pbr_normal;
+layout(set = 2, binding = 8) uniform texture2DArray t_pbr_specular;
+layout(set = 2, binding = 9) uniform sampler s_pbr_specular;
 
 layout (std140, set = 3, binding = 0)
 uniform u_locals {
