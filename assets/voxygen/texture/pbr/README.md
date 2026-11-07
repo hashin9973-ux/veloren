@@ -10,7 +10,7 @@ All source maps in this first set are 64x64 RGBA PNGs.
 
 ## Layer order
 
-The order below must match `pbr_material_names` in
+The wood material uses the bark map on vertical faces and the top/end-grain maps on horizontal faces. The order below must match `pbr_material_names` in
 `voxygen/src/render/renderer/mod.rs` and `terrain_pbr_layer` in
 `assets/voxygen/shaders/terrain-frag.glsl`.
 
@@ -21,9 +21,10 @@ The order below must match `pbr_material_names` in
 | 2 | grass_block_top | Grass top faces |
 | 3 | dirt | Earth |
 | 4 | sand | Sand |
-| 5 | oak_planks | Wood |
+| 5 | oak_log | Wood side faces |
 | 6 | snow | Snow, ArtSnow |
 | 7 | grass_block_side | Grass side faces |
+| 8 | oak_log_top | Wood end faces |
 
 Files use the suffixes `_albedo.png`, `_normal.png`, and `_specular.png`.
 
