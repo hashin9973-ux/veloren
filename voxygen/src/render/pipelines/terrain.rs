@@ -245,7 +245,8 @@ impl TerrainPbrTextures {
         assert_eq!(albedo_layers.len(), specular_layers.len());
         assert!(
             albedo_layers.len() <= device.limits().max_texture_array_layers as usize,
-            "The terrain PBR pack has {} materials but this GPU supports at most {} texture-array layers",
+            "The terrain PBR pack has {} materials but this GPU supports at most {} texture-array \
+             layers",
             albedo_layers.len(),
             device.limits().max_texture_array_layers
         );
