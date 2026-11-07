@@ -75,7 +75,7 @@ int terrain_pbr_layer(uint kind, vec3 face_normal) {
     if (kind == 0x31u) return 109; // sand
     if (kind == 0x40u) return abs(face_normal.z) > 0.5 ? 81 : 80; // log end / bark
     if (kind == 0x21u || kind == 0x22u) return 116; // snow
-    if (kind == 0x41u) return 79; // oak leaves
+    if (kind == 0x41u || kind == 0x44u) return 79; // Leaves and ArtLeaves
     if (kind == 0x43u) return 50; // glass-like ice surface
     return -1;
 }
