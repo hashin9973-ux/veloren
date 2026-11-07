@@ -153,6 +153,7 @@ pub struct Renderer {
     locals: Locals,
     views: Views,
     noise_tex: Texture,
+    terrain_materials: terrain::TerrainPbrTextures,
 
     quad_index_buffer_u16: Buffer<u16>,
     quad_index_buffer_u32: Buffer<u32>,
@@ -545,6 +546,47 @@ impl Renderer {
             Some(AddressMode::Repeat),
         )?;
 
+        // Layer order is shared with terrain-frag.glsl. These are the initial
+        // opaque terrain materials; leaves, plants, sprites, and fluids are omitted.
+        let pbr_material_names = [
+            "stone",
+            "cobblestone",
+            "grass_block_top",
+            "dirt",
+            "sand",
+            "oak_planks",
+            "snow",
+            "grass_block_side",
+        ];
+        let load_pbr_layers = |suffix: &str| {
+            pbr_material_names
+                .iter()
+                .map(|name| {
+                    let specifier = format!("voxygen.texture.pbr.{name}_{suffix}");
+                    let image = assets::Image::load_expect(&specifier);
+                    let image = image.read();
+                    assert_eq!(
+                        (image.0.width(), image.0.height()),
+                        (64, 64),
+                        "Terrain PBR material {specifier} must be 64x64"
+                    );
+                    image.0.to_rgba8().into_raw()
+                })
+                .collect::<Vec<_>>()
+        };
+        let terrain_albedo_layers = load_pbr_layers("albedo");
+        let terrain_normal_layers = load_pbr_layers("normal");
+        let terrain_specular_layers = load_pbr_layers("specular");
+        let terrain_materials = terrain::TerrainPbrTextures::new(
+            &device,
+            &queue,
+            &layouts.terrain,
+            Vec2::new(64, 64),
+            &terrain_albedo_layers,
+            &terrain_normal_layers,
+            &terrain_specular_layers,
+        );
+
         let clouds_locals =
             Self::create_consts_inner(&device, &queue, &[clouds::Locals::default()]);
         let postprocess_locals =
@@ -622,6 +664,7 @@ impl Renderer {
             sampler,
             depth_sampler,
             noise_tex,
+            terrain_materials,
 
             quad_index_buffer_u16,
             quad_index_buffer_u32,
