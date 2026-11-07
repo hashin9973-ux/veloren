@@ -70,7 +70,7 @@ int terrain_pbr_layer(uint kind, vec3 face_normal) {
     if (kind == 0x20u) return abs(face_normal.z) > 0.5 ? 2 : 7; // grass top/side
     if (kind == 0x30u) return 3; // earth
     if (kind == 0x31u) return 4; // sand
-    if (kind == 0x40u) return 5; // wood
+    if (kind == 0x40u) return abs(face_normal.z) > 0.5 ? 8 : 5; // wood bark / end grain
     if (kind == 0x21u || kind == 0x22u) return 6; // snow
     return -1;
 }
