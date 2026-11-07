@@ -335,20 +335,22 @@ void main() {
     vec3 k_d = vec3(1.0);
     vec3 k_s = vec3(R_s);
 
+    vec3 pbr_base_color = pbr_albedo * f_col;
     if (pbr_layer >= 0) {
         // LabPBR: red is inverted perceptual roughness; green is
-        // dielectric F0 or the conductor/material code. Values >= 230
-        // select the conductor path.
+        // dielectric F0 or the conductor/material code.
         float roughness = max(pow(1.0 - pbr_specular.r, 2.0), 0.0002);
         float encoded_f0 = floor(pbr_specular.g * 255.0 + 0.5);
         bool conductor = encoded_f0 >= 230.0;
-        vec3 base_color = pbr_albedo * f_col;
 
-        f_col = base_color;
+        // The existing terrain lighting multiplies the final BRDF result by
+        // f_col. Move the PBR base color into k_d/k_s and leave f_col white so
+        // diffuse and Fresnel color are applied once, not squared.
+        f_col = vec3(1.0);
         if (conductor) {
             // LabPBR conductor records (230-237) have a metal-specific
-            // complex IOR. Use the corresponding normal-incidence F0
-            // triplet in Veloren's existing Fresnel input.
+            // complex IOR. The albedo tints conductor reflectance, while
+            // diffuse response is zero.
             if (encoded_f0 <= 237.0) {
                 int metal_id = clamp(int(encoded_f0) - 230, 0, 7);
                 const vec3 eta_table[8] = vec3[8](
@@ -375,17 +377,17 @@ void main() {
                 vec3 etak = etak_table[metal_id];
                 vec3 eta2 = eta * eta;
                 vec3 etak2 = etak * etak;
-                k_s = ((eta - 1.0) * (eta - 1.0) + etak2)
+                vec3 conductor_f0 = ((eta - 1.0) * (eta - 1.0) + etak2)
                     / ((eta + 1.0) * (eta + 1.0) + etak2);
+                k_s = pbr_base_color * conductor_f0;
             } else {
-                // Non-complex conductors use the texture albedo as the
-                // colored Fresnel reflectance, as specified by LabPBR.
-                k_s = clamp(base_color, 0.0, 0.99);
+                // Codes 238-255 use albedo-based conductor reflectance.
+                k_s = pbr_base_color;
             }
             k_d = vec3(0.0);
         } else {
-            float f0 = clamp(pbr_specular.g, 0.02, 0.9);
-            k_d = base_color;
+            float f0 = clamp(pbr_specular.g, 0.0, 229.0 / 255.0);
+            k_d = pbr_base_color;
             k_s = vec3(f0);
         }
 
@@ -551,8 +553,6 @@ void main() {
 
     emitted_light *= mix(1.0, f_ao, 0.5) * pbr_material_ao;
     reflected_light *= mix(1.0, f_ao, 0.5) * pbr_material_ao;
-    emitted_light += pbr_albedo * pbr_emission;
-
     float point_shadow = shadow_at(f_pos, f_norm);
     reflected_light *= point_shadow;
     emitted_light *= point_shadow;
@@ -592,6 +592,9 @@ void main() {
     vec3 noise_delta = (sqrt(f_col) * W_INV + noise * NOISE_FACTOR);
     vec3 col = noise_delta * noise_delta * W_2;
     vec3 surf_color = illuminate(max_light, view_dir, col * emitted_light, col * reflected_light);
+    // Emission is an unlit material contribution and must not be multiplied
+    // by the BRDF, material AO, distance lighting, or point-shadow terms.
+    surf_color += pbr_base_color * pbr_emission;
     #ifdef EXPERIMENTAL_SNOWGLITTER
     if (f_kind == BLOCK_SNOW || f_kind == BLOCK_ART_SNOW) {
         float cam_distance = distance(cam_pos.xyz, f_pos);
