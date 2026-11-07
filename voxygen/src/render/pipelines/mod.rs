@@ -804,4 +804,67 @@ impl GlobalsLayouts {
             phantom: std::marker::PhantomData,
         }
     }
+
+    /// Bind per-chunk terrain atlases together with the renderer-owned PBR
+    /// arrays. This keeps terrain within the four bind groups guaranteed by
+    /// WebGPU while avoiding copies of the material pixels per chunk.
+    pub fn bind_terrain_atlas_textures(
+        &self,
+        device: &wgpu::Device,
+        textures: [Texture; 2],
+        materials: &terrain::TerrainPbrTextures,
+    ) -> AtlasTextures<terrain::Locals, TerrainAtlasData> {
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Terrain atlas and PBR materials"),
+            layout: self.terrain_atlas_layout.layout(),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&textures[0].view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&textures[0].sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&textures[1].view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&textures[1].sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&materials.albedo.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Sampler(&materials.albedo.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(&materials.normal.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::Sampler(&materials.normal.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
+                    resource: wgpu::BindingResource::TextureView(&materials.specular.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 9,
+                    resource: wgpu::BindingResource::Sampler(&materials.specular.sampler),
+                },
+            ],
+        });
+
+        AtlasTextures {
+            textures,
+            bind_group,
+            phantom: std::marker::PhantomData,
+        }
+    }
 }
