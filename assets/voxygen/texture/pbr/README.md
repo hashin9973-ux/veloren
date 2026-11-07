@@ -8,8 +8,8 @@ The complete block-folder inventory has **147 static materials** and
 **441 RGBA PNGs**:
 
 - `<material>_albedo.png`: sRGB base color
-- `<material>_normal.png`: linear tangent-space normal data; blue is ambient
-  occlusion and alpha is the parallax height field
+- `<material>_normal.png`: linear DirectX tangent-space normal data (Y-); blue
+  is ambient occlusion and alpha is the parallax height field
 - `<material>_specular.png`: linear LabPBR material data
 
 Animated fire sheets are excluded because they have no normal/specular map
@@ -34,6 +34,9 @@ cannot be selected individually until Veloren gains per-block material IDs or
 equivalent explicit material metadata.
 
 The shader ports the pack's POM behavior using the normal-map alpha height
-field, the 0.25 depth scale, 32 view-ray samples, 16 self-shadow samples, and
-the 24–48 world-unit distance fade. LabPBR roughness/F0 and conductor codes,
-normal reconstruction, and AO are decoded in the terrain fragment path.
+field, the 0.25 depth scale, up to 32 view-ray samples, 16 self-shadow samples,
+and the 24–48 world-unit distance fade. The distance fade blends sampled height
+toward a flat surface and the final UV/height/depth use the interpolated
+intersection. LabPBR roughness/F0 and conductor codes, DirectX normal
+orientation, normal reconstruction, emission, and AO are decoded in the terrain
+fragment path.
