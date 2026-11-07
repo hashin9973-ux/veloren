@@ -182,54 +182,25 @@ pub type BoundLocals = Bound<Consts<Locals>>;
 
 pub struct TerrainLayout {
     pub locals: wgpu::BindGroupLayout,
-    pub materials: wgpu::BindGroupLayout,
 }
 
 impl TerrainLayout {
     pub fn new(device: &wgpu::Device) -> Self {
-        let locals = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Terrain locals layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
-
-        let array_texture = |binding| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2Array,
-                multisampled: false,
-            },
-            count: None,
-        };
-        let filtering_sampler = |binding| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-            count: None,
-        };
-        let materials = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Terrain PBR material arrays"),
-            entries: &[
-                array_texture(0),
-                filtering_sampler(1),
-                array_texture(2),
-                filtering_sampler(3),
-                array_texture(4),
-                filtering_sampler(5),
-            ],
-        });
-
-        Self { locals, materials }
+        Self {
+            locals: device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Terrain locals layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            }),
+        }
     }
 
     pub fn bind_locals(&self, device: &wgpu::Device, locals: Consts<Locals>) -> BoundLocals {
@@ -252,17 +223,15 @@ impl TerrainLayout {
 /// GPU-resident diffuse, normal, and LabPBR specular texture arrays used by
 /// the terrain fragment shader. Each array has matching material layer indices.
 pub struct TerrainPbrTextures {
-    pub bind_group: wgpu::BindGroup,
-    _albedo: Texture,
-    _normal: Texture,
-    _specular: Texture,
+    pub(super) albedo: Texture,
+    pub(super) normal: Texture,
+    pub(super) specular: Texture,
 }
 
 impl TerrainPbrTextures {
     pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        layout: &TerrainLayout,
         dimensions: Vec2<u32>,
         albedo_layers: &[Vec<u8>],
         normal_layers: &[Vec<u8>],
@@ -355,42 +324,10 @@ impl TerrainPbrTextures {
             specular_layers,
         );
 
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Terrain PBR materials"),
-            layout: &layout.materials,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&albedo.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&albedo.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&normal.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&normal.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&specular.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: wgpu::BindingResource::Sampler(&specular.sampler),
-                },
-            ],
-        });
-
         Self {
-            bind_group,
-            _albedo: albedo,
-            _normal: normal,
-            _specular: specular,
+            albedo,
+            normal,
+            specular,
         }
     }
 }
@@ -419,7 +356,6 @@ impl TerrainPipeline {
                     &global_layout.shadow_textures,
                     global_layout.terrain_atlas_layout.layout(),
                     &layout.locals,
-                    &layout.materials,
                 ],
             });
 
