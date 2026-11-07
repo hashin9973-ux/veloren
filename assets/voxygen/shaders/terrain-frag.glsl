@@ -152,7 +152,7 @@ void main() {
             vec2 uv_step = view_ts.xy
                 * (0.25 * parallax_fade)
                 / (max(-view_ts.z, 0.15) * layer_count);
-            float previous_height = sampled_height;
+            float previous_height = max(sampled_height, 1.0 - parallax_fade);
             float ray_depth = 1.0;
             for (int step_index = 0; step_index < 32; ++step_index) {
                 if (float(step_index) >= layer_count || previous_height >= ray_depth) {
@@ -161,9 +161,12 @@ void main() {
                 ray_depth -= layer_step;
                 material_uv += uv_step;
                 layer_uv.xy = material_uv;
-                previous_height = textureGrad(
-                    sampler2DArray(t_pbr_normal, s_pbr_normal), layer_uv, uv_dx, uv_dy
-                ).a;
+                previous_height = max(
+                    textureGrad(
+                        sampler2DArray(t_pbr_normal, s_pbr_normal), layer_uv, uv_dx, uv_dy
+                    ).a,
+                    1.0 - parallax_fade
+                );
             }
             layer_uv.xy = material_uv;
         }
